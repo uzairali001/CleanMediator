@@ -12,6 +12,7 @@ public class LoggingDecorator<TCommand, TResult>(
     ICommandHandler<TCommand, TResult> inner,
     ILogger<LoggingDecorator<TCommand, TResult>> logger
 ) : ICommandHandler<TCommand, TResult>
+    where TCommand : IBaseCommand
 {
     public async Task<TResult> HandleAsync(TCommand command, CancellationToken ct)
     {
@@ -40,6 +41,7 @@ public class LoggingDecorator<TCommand, TResult>(
 public class ValidationDecorator<TCommand, TResult>(
     ICommandHandler<TCommand, TResult> inner,
     IEnumerable<IValidator<TCommand>> validators) : ICommandHandler<TCommand, TResult>
+    where TCommand : IBaseCommand
 {
     public async Task<TResult> HandleAsync(TCommand command, CancellationToken ct)
     {

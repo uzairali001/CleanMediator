@@ -3,7 +3,7 @@
 namespace CleanMediator.SampleApi.Features.User;
 
 // --- 1. The Command (Explicit Intent) ---
-public record CreateUserCommand(string Username, string Email);
+public record CreateUserCommand(string Username, string Email) : IBaseCommand;
 
 // --- 2. The Command Handler (Inject this directly!) ---
 public class CreateUserHandler : ICommandHandler<CreateUserCommand, Guid>

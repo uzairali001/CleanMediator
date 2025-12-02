@@ -24,4 +24,16 @@ public class UsersController(
 
         return Ok(new { UserId = userId });
     }
+
+    // New Endpoint for Query
+    [HttpGet("{id}")]
+    public async Task<IActionResult> Get(Guid id, [FromServices] IQueryHandler<GetUserQuery, UserDto?> _getUserHandler)
+    {
+        var query = new GetUserQuery(id);
+        var result = await _getUserHandler.HandleAsync(query, CancellationToken.None);
+
+        if (result is null) return NotFound();
+
+        return Ok(result);
+    }
 }

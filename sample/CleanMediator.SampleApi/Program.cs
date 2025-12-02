@@ -15,6 +15,7 @@ builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
+builder.Services.AddMemoryCache();
 
 // --- 1. Register Infrastructure ---
 // Register the Exception Handler
@@ -40,6 +41,16 @@ builder.Services.Decorate(typeof(ICommandHandler<,>), typeof(ValidationDecorator
 // Second Decoration: Wrap the validator with Logging
 // Result: Logging -> Validation -> Handler
 builder.Services.Decorate(typeof(ICommandHandler<,>), typeof(LoggingDecorator<,>));
+
+// --- 2. QUERIES (Read Side) ---
+builder.Services.Scan(scan => scan
+    .FromAssemblyOf<Program>()
+    .AddClasses(classes => classes.AssignableTo(typeof(IQueryHandler<,>)))
+    .AsImplementedInterfaces()
+    .WithScopedLifetime());
+
+// Decorate Queries: Caching -> Handler
+builder.Services.Decorate(typeof(IQueryHandler<,>), typeof(CachingDecorator<,>));
 
 // --- 3. Register Notifications (Source Generated) ---
 builder.Services.AddCleanMediator();
