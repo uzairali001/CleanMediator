@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/sample/">
+    <Project Path="J:/Work/VisualStudio/CleanMediator/sample/CleanMediator.SampleApi/CleanMediator.SampleApi.csproj" Id="724307b5-7359-4292-9b61-7fe34b3c96c6" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="J:/Work/VisualStudio/CleanMediator/src/CleanMediator.Generators/CleanMediator.Generators.csproj" />
+    <Project Path="J:/Work/VisualStudio/CleanMediator/src/CleanMediator/CleanMediator.Abstractions.csproj" />
+  </Folder>
+</Solution>
