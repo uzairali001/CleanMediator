@@ -32,7 +32,7 @@ public static class TestHelper
             references: references);
 
         // 4. Create an instance of our Generator
-        var generator = new EventPublisherGenerator();
+        var generator = new MediatorGenerator();
 
         // 5. Run the Generator
         GeneratorDriver driver = CSharpGeneratorDriver.Create(generator);

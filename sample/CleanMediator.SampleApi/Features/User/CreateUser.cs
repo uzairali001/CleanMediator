@@ -1,8 +1,10 @@
 ﻿using CleanMediator.Abstractions;
+using CleanMediator.SampleApi.Behaviors;
 
 namespace CleanMediator.SampleApi.Features.User;
 
 // --- 1. The Command (Explicit Intent) ---
+[Validated, Logged]
 public record CreateUserCommand(string Username, string Email) : IBaseCommand;
 
 // --- 2. The Command Handler (Inject this directly!) ---

@@ -1,8 +1,10 @@
 ﻿using CleanMediator.Abstractions;
+using CleanMediator.SampleApi.Behaviors;
 
 namespace CleanMediator.SampleApi.Features.User;
 
 // 1. The Query Object (Immutable Request)
+[Cached]
 public record GetUserQuery(Guid UserId) : IBaseQuery;
 
 // 2. The Result DTO
