@@ -12,43 +12,43 @@ public class MediatorGenerator : IIncrementalGenerator
 {
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
-        var classDeclarations = context.SyntaxProvider
+        // We only need one pipeline now. We analyze decorators "on-demand" 
+        // when we encounter the attribute on a Handler.
+        var handlers = context.SyntaxProvider
             .CreateSyntaxProvider(
                 predicate: static (s, _) => IsClassWithInterfaces(s),
-                transform: static (ctx, _) => GetSemanticInfo(ctx))
+                transform: static (ctx, _) => GetHandlerInfo(ctx))
             .Where(static m => m is not null);
 
-        var compilationAndClasses = context.CompilationProvider.Combine(classDeclarations.Collect());
+        var data = context.CompilationProvider.Combine(handlers.Collect());
 
-        context.RegisterSourceOutput(compilationAndClasses, static (spc, source) => Execute(source.Left, source.Right, spc));
+        context.RegisterSourceOutput(data, static (spc, source) =>
+            Execute(source.Left, source.Right, spc));
     }
 
     private static bool IsClassWithInterfaces(SyntaxNode node)
-    {
-        return node is ClassDeclarationSyntax c && c.BaseList is { Types.Count: > 0 };
-    }
+        => node is ClassDeclarationSyntax c && c.BaseList is { Types.Count: > 0 };
 
-    private static HandlerInfo? GetSemanticInfo(GeneratorSyntaxContext context)
+    // --- Handler Analysis ---
+
+    private static HandlerInfo? GetHandlerInfo(GeneratorSyntaxContext context)
     {
         var classDeclaration = (ClassDeclarationSyntax)context.Node;
         var symbol = context.SemanticModel.GetDeclaredSymbol(classDeclaration);
 
-        // FIX: Ignore Abstract classes AND Open Generics (like the Decorators themselves)
-        // If we don't ignore generics, it tries to register Decorator<T> and fails because T is unknown.
         if (symbol is not INamedTypeSymbol typeSymbol || typeSymbol.IsAbstract || typeSymbol.TypeParameters.Length > 0)
             return null;
 
         foreach (var interfaceType in typeSymbol.AllInterfaces)
         {
-            // ROBUST MATCHING: Check Name and Namespace specifically
             if (interfaceType.ContainingNamespace?.ToDisplayString() != "CleanMediator.Abstractions")
                 continue;
 
-            var name = interfaceType.Name; // e.g. "ICommandHandler"
+            var name = interfaceType.Name;
 
+            // Common logic to extract decorators from the Request Type
             if (name == "ICommandHandler" && interfaceType.TypeArguments.Length == 2)
             {
-                // ICommandHandler<TCommand, TResult>
                 var requestType = interfaceType.TypeArguments[0];
                 return new HandlerInfo(
                     Type: HandlerType.Command,
@@ -56,24 +56,21 @@ public class MediatorGenerator : IIncrementalGenerator
                     InterfaceType: interfaceType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                     RequestType: requestType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                     ResponseType: interfaceType.TypeArguments[1].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-                    Decorators: GetDecorators(requestType)
+                    Decorators: GetDecoratorsFromAttribute(requestType)
                 );
             }
-
             if (name == "ICommandHandler" && interfaceType.TypeArguments.Length == 1)
             {
-                // ICommandHandler<TCommand> (Void)
                 var requestType = interfaceType.TypeArguments[0];
                 return new HandlerInfo(
                    Type: HandlerType.CommandVoid,
                    ImplementationType: typeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                    InterfaceType: interfaceType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                    RequestType: requestType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-                   ResponseType: "System.Threading.Tasks.Task", // Placeholder
-                   Decorators: GetDecorators(requestType)
+                   ResponseType: "global::System.Threading.Tasks.Task",
+                   Decorators: GetDecoratorsFromAttribute(requestType)
                );
             }
-
             if (name == "IQueryHandler" && interfaceType.TypeArguments.Length == 2)
             {
                 var requestType = interfaceType.TypeArguments[0];
@@ -83,10 +80,9 @@ public class MediatorGenerator : IIncrementalGenerator
                     InterfaceType: interfaceType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                     RequestType: requestType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                     ResponseType: interfaceType.TypeArguments[1].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-                    Decorators: GetDecorators(requestType)
+                    Decorators: GetDecoratorsFromAttribute(requestType)
                 );
             }
-
             if (name == "INotificationHandler" && interfaceType.TypeArguments.Length == 1)
             {
                 var eventType = interfaceType.TypeArguments[0];
@@ -96,39 +92,107 @@ public class MediatorGenerator : IIncrementalGenerator
                     InterfaceType: interfaceType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                     RequestType: eventType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                     ResponseType: "void",
-                    Decorators: DecoratorFlags.None
+                    Decorators: ImmutableArray<DecoratorUsage>.Empty
                 );
             }
         }
-
         return null;
     }
 
-    private static DecoratorFlags GetDecorators(ITypeSymbol requestType)
+    private static ImmutableArray<DecoratorUsage> GetDecoratorsFromAttribute(ITypeSymbol requestType)
     {
-        var flags = DecoratorFlags.None;
-        var attributes = requestType.GetAttributes();
+        var builder = ImmutableArray.CreateBuilder<DecoratorUsage>();
 
-        foreach (var attr in attributes)
+        foreach (var attr in requestType.GetAttributes())
         {
-            var name = attr.AttributeClass?.Name;
-            // Robust check: Matches "Logged" OR "LoggedAttribute"
-            if (IsAttribute(name, "Logged")) flags |= DecoratorFlags.Logged;
-            if (IsAttribute(name, "Validated")) flags |= DecoratorFlags.Validated;
-            if (IsAttribute(name, "Cached")) flags |= DecoratorFlags.Cached;
+            if (attr.AttributeClass?.Name != "DecoratorAttribute" &&
+                attr.AttributeClass?.Name != "Decorator") continue;
+
+            if (attr.AttributeClass?.ContainingNamespace?.ToDisplayString() != "CleanMediator.Abstractions")
+                continue;
+
+            if (attr.ConstructorArguments.Length > 0 &&
+                attr.ConstructorArguments[0].Value is INamedTypeSymbol decoratorType)
+            {
+                // CRITICAL FIX: Handle Unbound Generics (typeof(X<,>))
+                if (decoratorType.IsUnboundGenericType)
+                    decoratorType = decoratorType.ConstructedFrom;
+                else
+                    decoratorType = decoratorType.OriginalDefinition;
+
+                int order = 0;
+                var orderArg = attr.NamedArguments.FirstOrDefault(kvp => kvp.Key == "Order");
+                if (orderArg.Key != null && orderArg.Value.Value is int o)
+                {
+                    order = o;
+                }
+                else if (attr.ConstructorArguments.Length > 1 && attr.ConstructorArguments[1].Value is int positionalOrder)
+                {
+                    order = positionalOrder;
+                }
+
+                var deps = AnalyzeDecoratorConstructor(decoratorType);
+                var typeParams = decoratorType.TypeParameters.Select(tp => tp.Name).ToImmutableArray();
+
+                var fullType = decoratorType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                var rawType = fullType.Split('<')[0];
+
+                builder.Add(new DecoratorUsage(rawType, order, deps, typeParams));
+            }
         }
-        return flags;
+
+        return builder.ToImmutable();
     }
 
-    private static bool IsAttribute(string? actualName, string targetName)
+    private static ImmutableArray<string> AnalyzeDecoratorConstructor(INamedTypeSymbol decoratorType)
     {
-        if (string.IsNullOrEmpty(actualName)) return false;
-        return actualName == targetName || actualName == targetName + "Attribute";
+        // Double check we have the definition
+        if (decoratorType.IsUnboundGenericType)
+            decoratorType = decoratorType.ConstructedFrom;
+
+        var ctor = decoratorType.Constructors.OrderByDescending(c => c.Parameters.Length).FirstOrDefault();
+
+        // If still null, try OriginalDefinition as fallback
+        if (ctor == null)
+        {
+            decoratorType = decoratorType.OriginalDefinition;
+            ctor = decoratorType.Constructors.OrderByDescending(c => c.Parameters.Length).FirstOrDefault();
+        }
+
+        if (ctor == null) return ImmutableArray<string>.Empty;
+
+        var dependencies = ImmutableArray.CreateBuilder<string>();
+
+        foreach (var param in ctor.Parameters)
+        {
+            if (IsInnerHandlerParameter(param.Type))
+            {
+                dependencies.Add("INNER_HANDLER_PLACEHOLDER");
+            }
+            else
+            {
+                dependencies.Add(param.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
+            }
+        }
+
+        return dependencies.ToImmutable();
     }
+
+    private static bool IsInnerHandlerParameter(ITypeSymbol type)
+    {
+        var typeString = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        var defString = type.OriginalDefinition.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+
+        return typeString.Contains("CleanMediator.Abstractions.ICommandHandler") ||
+               typeString.Contains("CleanMediator.Abstractions.IQueryHandler") ||
+               defString.Contains("CleanMediator.Abstractions.ICommandHandler") ||
+               defString.Contains("CleanMediator.Abstractions.IQueryHandler");
+    }
+
+    // --- Execution ---
 
     private static void Execute(Compilation compilation, ImmutableArray<HandlerInfo?> items, SourceProductionContext context)
     {
-        // Even if empty, we generate the extension method to prevent compilation errors in Program.cs
         var handlers = items.IsDefaultOrEmpty
             ? new List<HandlerInfo>()
             : items.Where(x => x is not null).Cast<HandlerInfo>().ToList();
@@ -137,17 +201,7 @@ public class MediatorGenerator : IIncrementalGenerator
 
         sb.AppendLine("""
 using System;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using CleanMediator.Abstractions;
-using FluentValidation;
-using Microsoft.Extensions.Caching.Memory;
-
-// IMPORTANT: We assume behaviors are in this namespace. 
-// If you move them, change this line or move them to a shared namespace.
-using CleanMediator.SampleApi.Behaviors; 
 
 namespace CleanMediator.Generated
 {
@@ -155,41 +209,67 @@ namespace CleanMediator.Generated
     {
         public static IServiceCollection AddCleanMediator(this IServiceCollection services)
         {
-            // Register Publisher
-            services.AddScoped<IEventPublisher, GeneratedEventPublisher>();
+            services.AddScoped<global::CleanMediator.Abstractions.IEventPublisher, GeneratedEventPublisher>();
 
 """);
 
-        // 1. Register Commands and Queries (with Decorators)
         foreach (var handler in handlers.Where(h => h.Type == HandlerType.Command || h.Type == HandlerType.Query || h.Type == HandlerType.CommandVoid).Distinct())
         {
-            // A. Register the Concrete Handler
+            sb.AppendLine($"            // Handler: {handler.ImplementationType}");
             sb.AppendLine($"            services.AddScoped<{handler.ImplementationType}>();");
-
-            // B. Register the Interface with Factory
             sb.AppendLine($"            services.AddScoped<{handler.InterfaceType}>(sp => {{");
             sb.AppendLine($"                var handler = ({handler.InterfaceType})sp.GetRequiredService<{handler.ImplementationType}>();");
 
-            // Validated
-            if (handler.Decorators.HasFlag(DecoratorFlags.Validated))
-            {
-                sb.AppendLine($"                var validators = sp.GetRequiredService<System.Collections.Generic.IEnumerable<IValidator<{handler.RequestType}>>>();");
-                sb.AppendLine($"                handler = new ValidationDecorator<{handler.RequestType}, {handler.ResponseType}>(handler, validators);");
-            }
+            var sortedDecorators = handler.Decorators.OrderBy(d => d.Order);
 
-            // Logged
-            if (handler.Decorators.HasFlag(DecoratorFlags.Logged))
+            foreach (var decorator in sortedDecorators)
             {
-                sb.AppendLine($"                var logger = sp.GetRequiredService<ILogger<LoggingDecorator<{handler.RequestType}, {handler.ResponseType}>>>();");
-                sb.AppendLine($"                handler = new LoggingDecorator<{handler.RequestType}, {handler.ResponseType}>(handler, logger);");
-            }
+                // Safety check: Did we fail to find constructor parameters?
+                if (decorator.ConstructorDependencies.IsEmpty)
+                {
+                    sb.AppendLine($"                // Warning: Could not find constructor for {decorator.TypeName}. Ensure it is public.");
+                    // Fallback to empty constructor so code might compile if a default ctor exists, or fail visibly
+                    sb.AppendLine($"                handler = new {decorator.TypeName}<{handler.RequestType}, {handler.ResponseType}>();");
+                    continue;
+                }
 
-            // Cached (Queries only)
-            if (handler.Decorators.HasFlag(DecoratorFlags.Cached) && handler.Type == HandlerType.Query)
-            {
-                sb.AppendLine($"                var cache = sp.GetRequiredService<IMemoryCache>();");
-                sb.AppendLine($"                var cacheLogger = sp.GetRequiredService<ILogger<CachingDecorator<{handler.RequestType}, {handler.ResponseType}>>>();");
-                sb.AppendLine($"                handler = new CachingDecorator<{handler.RequestType}, {handler.ResponseType}>(handler, cache, cacheLogger);");
+                var args = new List<string>();
+                foreach (var dep in decorator.ConstructorDependencies)
+                {
+                    if (dep == "INNER_HANDLER_PLACEHOLDER")
+                    {
+                        args.Add("handler");
+                    }
+                    else
+                    {
+                        var resolvedDep = dep;
+
+                        // Replace generic placeholders with concrete types
+                        for (int i = 0; i < decorator.TypeParameters.Length; i++)
+                        {
+                            var paramName = decorator.TypeParameters[i];
+
+                            if (paramName.Contains("Result") || paramName.Contains("Response"))
+                            {
+                                resolvedDep = resolvedDep.Replace(paramName, handler.ResponseType);
+                            }
+                            else if (paramName.Contains("Command") || paramName.Contains("Query") || paramName.Contains("Request"))
+                            {
+                                resolvedDep = resolvedDep.Replace(paramName, handler.RequestType);
+                            }
+                            else
+                            {
+                                if (i == 0) resolvedDep = resolvedDep.Replace(paramName, handler.RequestType);
+                                if (i == 1) resolvedDep = resolvedDep.Replace(paramName, handler.ResponseType);
+                            }
+                        }
+
+                        args.Add($"sp.GetRequiredService<{resolvedDep}>()");
+                    }
+                }
+
+                sb.AppendLine($"                // Decorator: {decorator.TypeName} (Order: {decorator.Order})");
+                sb.AppendLine($"                handler = new {decorator.TypeName}<{handler.RequestType}, {handler.ResponseType}>({string.Join(", ", args)});");
             }
 
             sb.AppendLine($"                return handler;");
@@ -197,7 +277,6 @@ namespace CleanMediator.Generated
             sb.AppendLine();
         }
 
-        // 2. Register Notification Handlers
         var notificationHandlers = handlers.Where(h => h.Type == HandlerType.Event).ToList();
         foreach (var handler in notificationHandlers.Select(h => h.ImplementationType).Distinct())
         {
@@ -220,7 +299,7 @@ namespace CleanMediator.Generated
     private static void GenerateEventPublisher(StringBuilder sb, List<HandlerInfo> handlers)
     {
         sb.AppendLine("""
-    public class GeneratedEventPublisher : IEventPublisher
+    public class GeneratedEventPublisher : global::CleanMediator.Abstractions.IEventPublisher
     {
         private readonly IServiceProvider _serviceProvider;
 
@@ -229,7 +308,7 @@ namespace CleanMediator.Generated
             _serviceProvider = serviceProvider;
         }
 
-        public async Task PublishAsync<TEvent>(TEvent notification, CancellationToken ct)
+        public async global::System.Threading.Tasks.Task PublishAsync<TEvent>(TEvent notification, global::System.Threading.CancellationToken ct)
         {
             var eventType = typeof(TEvent);
 """);
@@ -261,8 +340,40 @@ namespace CleanMediator.Generated
 
     private enum HandlerType { Command, CommandVoid, Query, Event }
 
-    [System.Flags]
-    private enum DecoratorFlags { None = 0, Logged = 1, Validated = 2, Cached = 4 }
+    private class DecoratorUsage : IEquatable<DecoratorUsage>
+    {
+        public string TypeName { get; }
+        public int Order { get; }
+        public ImmutableArray<string> ConstructorDependencies { get; }
+        public ImmutableArray<string> TypeParameters { get; }
+
+        public DecoratorUsage(string typeName, int order, ImmutableArray<string> deps, ImmutableArray<string> typeParams)
+        {
+            TypeName = typeName;
+            Order = order;
+            ConstructorDependencies = deps;
+            TypeParameters = typeParams;
+        }
+
+        public bool Equals(DecoratorUsage other) =>
+            other != null &&
+            TypeName == other.TypeName &&
+            Order == other.Order &&
+            ConstructorDependencies.SequenceEqual(other.ConstructorDependencies) &&
+            TypeParameters.SequenceEqual(other.TypeParameters);
+
+        public override bool Equals(object obj) => Equals(obj as DecoratorUsage);
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                int hash = 17;
+                hash = hash * 23 + TypeName.GetHashCode();
+                hash = hash * 23 + Order.GetHashCode();
+                return hash;
+            }
+        }
+    }
 
     private class HandlerInfo : IEquatable<HandlerInfo>
     {
@@ -271,9 +382,9 @@ namespace CleanMediator.Generated
         public string InterfaceType { get; }
         public string RequestType { get; }
         public string ResponseType { get; }
-        public DecoratorFlags Decorators { get; }
+        public ImmutableArray<DecoratorUsage> Decorators { get; }
 
-        public HandlerInfo(HandlerType Type, string ImplementationType, string InterfaceType, string RequestType, string ResponseType, DecoratorFlags Decorators)
+        public HandlerInfo(HandlerType Type, string ImplementationType, string InterfaceType, string RequestType, string ResponseType, ImmutableArray<DecoratorUsage> Decorators)
         {
             this.Type = Type;
             this.ImplementationType = ImplementationType;
@@ -288,7 +399,7 @@ namespace CleanMediator.Generated
             Type == other.Type &&
             ImplementationType == other.ImplementationType &&
             InterfaceType == other.InterfaceType &&
-            Decorators == other.Decorators;
+            Decorators.SequenceEqual(other.Decorators);
 
         public override bool Equals(object obj) => Equals(obj as HandlerInfo);
         public override int GetHashCode()

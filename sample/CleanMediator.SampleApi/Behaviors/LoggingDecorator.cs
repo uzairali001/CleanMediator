@@ -7,7 +7,7 @@ namespace CleanMediator.SampleApi.Behaviors;
 
 // --- Attributes for Opt-In Behavior ---
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct)]
-public class LoggedAttribute : Attribute { }
+public class LoggingAttribute : Attribute { }
 
 
 // --- 1. Logging Decorator ---
@@ -18,7 +18,7 @@ public class LoggingDecorator<TCommand, TResult>(
 {
 
     // Optimize: Check for attribute once per type
-    private static readonly bool _isLogEnabled = typeof(TCommand).GetCustomAttribute<LoggedAttribute>() != null;
+    private static readonly bool _isLogEnabled = typeof(TCommand).GetCustomAttribute<LoggingAttribute>() != null;
 
     public async Task<TResult> HandleAsync(TCommand command, CancellationToken ct)
     {

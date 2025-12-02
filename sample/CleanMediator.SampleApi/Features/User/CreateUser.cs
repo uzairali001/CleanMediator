@@ -4,7 +4,8 @@ using CleanMediator.SampleApi.Behaviors;
 namespace CleanMediator.SampleApi.Features.User;
 
 // --- 1. The Command (Explicit Intent) ---
-[Validated, Logged]
+[Decorator(typeof(ValidationDecorator<,>), Order = 1)]
+[Decorator(typeof(LoggingDecorator<,>), Order = 2)]
 public record CreateUserCommand(string Username, string Email) : IBaseCommand;
 
 // --- 2. The Command Handler (Inject this directly!) ---

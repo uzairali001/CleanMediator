@@ -8,7 +8,7 @@ namespace CleanMediator.SampleApi.Behaviors;
 
 // --- Attributes for Opt-In Behavior ---
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct)]
-public class ValidatedAttribute : Attribute { }
+public class ValidationAttribute : Attribute { }
 
 
 public class ValidationDecorator<TCommand, TResult>(
@@ -17,7 +17,7 @@ public class ValidationDecorator<TCommand, TResult>(
     where TCommand : IBaseCommand
 {
     // Optimize: Check for attribute once per type
-    private static readonly bool _isValidationEnabled = typeof(TCommand).GetCustomAttribute<ValidatedAttribute>() != null;
+    private static readonly bool _isValidationEnabled = typeof(TCommand).GetCustomAttribute<ValidationAttribute>() != null;
 
 
     public async Task<TResult> HandleAsync(TCommand command, CancellationToken ct)
