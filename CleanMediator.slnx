@@ -6,4 +6,7 @@
     <Project Path="J:/Work/VisualStudio/CleanMediator/src/CleanMediator.Generators/CleanMediator.Generators.csproj" />
     <Project Path="J:/Work/VisualStudio/CleanMediator/src/CleanMediator/CleanMediator.Abstractions.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CleanMediator.Generators.Tests/CleanMediator.Generators.Tests.csproj" Id="74df7c9d-72bc-438a-9994-1b6be935dd4c" />
+  </Folder>
 </Solution>

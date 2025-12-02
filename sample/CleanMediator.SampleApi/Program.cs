@@ -1,5 +1,6 @@
 using CleanMediator.Abstractions;
 using CleanMediator.Generated;
+using CleanMediator.SampleApi;
 using CleanMediator.SampleApi.Behaviors;
 
 using FluentValidation;
@@ -15,8 +16,12 @@ builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 
 
+// --- 1. Register Infrastructure ---
+// Register the Exception Handler
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+builder.Services.AddProblemDetails(); // Standard problem details support
 
-// --- 1. Register Validators ---
+// --- 2. Register Validators ---
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 
 // --- 2. Register Handlers & Decorate with Scrutor ---
@@ -51,6 +56,9 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 
 app.UseAuthorization();
+
+// Enable the Exception Handler Middleware
+app.UseExceptionHandler();
 
 app.MapControllers();
 
