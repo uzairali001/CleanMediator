@@ -86,4 +86,46 @@ public class EventPublisherGeneratorTests
         Assert.Contains("await _serviceProvider.GetRequiredService<global::TestNamespace.EmailHandler>().HandleAsync(concreteEvent, ct);", generatedCode);
         Assert.Contains("await _serviceProvider.GetRequiredService<global::TestNamespace.AuditHandler>().HandleAsync(concreteEvent, ct);", generatedCode);
     }
+
+    [Fact]
+    public async Task Should_Ignore_Query_Handlers()
+    {
+        // Arrange
+        // We define a Query Handler here. The generator should NOT see this as a Notification Handler.
+        var source = """
+        using System;
+        using System.Threading;
+        using System.Threading.Tasks;
+        using CleanMediator.Abstractions;
+
+        namespace TestNamespace;
+
+        public class TestQuery { }
+
+        // Mocking the interface locally for the test compilation since we can't easily recompile the Abstractions assembly in this test harness context
+        public interface IQueryHandler<in TQuery, TResult>
+        {
+            Task<TResult> HandleAsync(TQuery query, CancellationToken ct);
+        }
+
+        public class GetUserQueryHandler : IQueryHandler<TestQuery, string>
+        {
+            public Task<string> HandleAsync(TestQuery query, CancellationToken ct) => Task.FromResult("User");
+        }
+        """;
+
+        // Act
+        var (runResult, _) = await TestHelper.Verify(source);
+
+        // Assert
+        var generatedSource = runResult.GeneratedTrees.SingleOrDefault();
+
+        // If no NotificationHandlers are found, it generates an empty extension method.
+        // We want to ensure it DOES NOT generate registration or dispatch logic for GetUserQueryHandler.
+        if (generatedSource != null)
+        {
+            var generatedCode = generatedSource.ToString();
+            Assert.DoesNotContain("GetUserQueryHandler", generatedCode);
+        }
+    }
 }
