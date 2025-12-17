@@ -2,28 +2,18 @@
 
 using FluentValidation;
 
-using System.Reflection;
-
 namespace CleanMediator.SampleApi.Behaviors;
 
-// --- Attributes for Opt-In Behavior ---
-[AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct)]
-public class ValidationAttribute : Attribute { }
-
-
+[GenerateDecorator("Validation")]
 public class ValidationDecorator<TCommand, TResult>(
     ICommandHandler<TCommand, TResult> inner,
     IEnumerable<IValidator<TCommand>> validators) : ICommandHandler<TCommand, TResult>
     where TCommand : IBaseCommand
 {
-    // Optimize: Check for attribute once per type
-    private static readonly bool _isValidationEnabled = typeof(TCommand).GetCustomAttribute<ValidationAttribute>() != null;
-
-
     public async Task<TResult> HandleAsync(TCommand command, CancellationToken ct)
     {
-        // Skip if attribute is missing OR no validators are registered
-        if (!_isValidationEnabled || !validators.Any())
+        // Skip if no validators are registered
+        if (!validators.Any())
         {
             return await inner.HandleAsync(command, ct);
         }

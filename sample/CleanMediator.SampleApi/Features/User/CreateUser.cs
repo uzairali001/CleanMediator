@@ -1,14 +1,14 @@
 ﻿using CleanMediator.Abstractions;
-using CleanMediator.SampleApi.Behaviors;
+using CleanMediator.Annotations;
 
 namespace CleanMediator.SampleApi.Features.User;
 
-// --- 1. The Command (Explicit Intent) ---
-[Decorator(typeof(ValidationDecorator<,>), Order = 1)]
-[Decorator(typeof(LoggingDecorator<,>), Order = 2)]
+//  The Command ---
 public record CreateUserCommand(string Username, string Email) : IBaseCommand;
 
-// --- 2. The Command Handler (Inject this directly!) ---
+// The Command Handler ---
+[Logging]
+[Validation]
 public class CreateUserHandler : ICommandHandler<CreateUserCommand, Guid>
 {
     public async Task<Guid> HandleAsync(CreateUserCommand command, CancellationToken ct)
@@ -21,10 +21,10 @@ public class CreateUserHandler : ICommandHandler<CreateUserCommand, Guid>
     }
 }
 
-// --- 3. The Event (Side Effects) ---
+// The Event (Side Effects) ---
 public record UserCreatedEvent(Guid UserId, string Email);
 
-// --- 4. Notification Handler A (Email) ---
+// Notification Handler A (Email) ---
 public class SendWelcomeEmailHandler : INotificationHandler<UserCreatedEvent>
 {
     public async Task HandleAsync(UserCreatedEvent notification, CancellationToken ct)
@@ -34,7 +34,7 @@ public class SendWelcomeEmailHandler : INotificationHandler<UserCreatedEvent>
     }
 }
 
-// --- 5. Notification Handler B (Audit) ---
+// Notification Handler B (Audit) ---
 public class AuditLogHandler : INotificationHandler<UserCreatedEvent>
 {
     public async Task HandleAsync(UserCreatedEvent notification, CancellationToken ct)

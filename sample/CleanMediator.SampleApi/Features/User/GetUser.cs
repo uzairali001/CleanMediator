@@ -1,16 +1,15 @@
 ﻿using CleanMediator.Abstractions;
-using CleanMediator.SampleApi.Behaviors;
+using CleanMediator.Annotations;
 
 namespace CleanMediator.SampleApi.Features.User;
 
-// 1. The Query Object (Immutable Request)
-[Cached]
 public record GetUserQuery(Guid UserId) : IBaseQuery;
 
 // 2. The Result DTO
 public record UserDto(Guid Id, string Username, string Email);
 
 // 3. The Query Handler
+//[Caching(durationInSeconds: 650)]
 public class GetUserHandler : IQueryHandler<GetUserQuery, UserDto?>
 {
     public async Task<UserDto?> HandleAsync(GetUserQuery query, CancellationToken ct)

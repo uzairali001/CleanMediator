@@ -1,10 +1,14 @@
+using CleanMediator.Generated;
 using CleanMediator.SampleApi;
 
 using FluentValidation;
 
 using Scalar.AspNetCore;
 
+Console.OutputEncoding = System.Text.Encoding.UTF8;
+
 var builder = WebApplication.CreateBuilder(args);
+
 
 // Add services to the container.
 
@@ -22,7 +26,7 @@ builder.Services.AddProblemDetails(); // Standard problem details support
 // --- 2. Register Validators ---
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 
-//builder.Services.AddCleanMediator();
+builder.Services.AddCleanMediator();
 
 var app = builder.Build();
 
@@ -43,3 +47,5 @@ app.UseExceptionHandler();
 app.MapControllers();
 
 app.Run();
+
+
